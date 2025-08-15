@@ -279,6 +279,7 @@ func NewTerraApp(
 			DyncommKeeper:      app.DyncommKeeper,
 			StakingKeeper:      app.StakingKeeper,
 			TaxKeeper:          &app.TaxKeeper,
+			AllianceKeeper      app.AllianceKeeper,
 			Cdc:                app.appCodec,
 		},
 	)
