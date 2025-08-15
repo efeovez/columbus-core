@@ -84,6 +84,10 @@ import (
 	taxmarket "github.com/classic-terra/core/v3/x/tax/modules/market"
 	taxtypes "github.com/classic-terra/core/v3/x/tax/types"
 
+	"github.com/terra-money/alliance/x/alliance"
+	allianceclient "github.com/terra-money/alliance/x/alliance/client"
+	alliancetypes "github.com/terra-money/alliance/x/alliance/types"
+
 	// unnamed import of statik for swagger UI support
 	_ "github.com/classic-terra/core/v3/client/docs/statik"
 )
@@ -110,6 +114,9 @@ var (
 				ibcclientclient.UpgradeProposalHandler,
 				treasuryclient.ProposalAddBurnTaxExemptionAddressHandler,
 				treasuryclient.ProposalRemoveBurnTaxExemptionAddressHandler,
+				allianceclient.CreateAllianceProposalHandler,
+				allianceclient.UpdateAllianceProposalHandler,
+				allianceclient.DeleteAllianceProposalHandler,
 			},
 		),
 		customparams.AppModuleBasic{},
@@ -133,6 +140,7 @@ var (
 		ibchooks.AppModuleBasic{},
 		consensus.AppModuleBasic{},
 		taxmodule.AppModuleBasic{},
+		alliance.AppModuleBasic{},
 	)
 	// module account permissions
 	maccPerms = map[string][]string{
@@ -151,6 +159,8 @@ var (
 		icatypes.ModuleName:            nil,
 		wasmtypes.ModuleName:           {authtypes.Burner},
 		ibchookstypes.ModuleName:       nil,
+		alliancetypes.ModuleName:       {authtypes.Minter, authtypes.Burner},
+		alliancetypes.RewardsPoolName:  nil,
 	}
 	// module accounts that are allowed to receive tokens
 	allowedReceivingModAcc = map[string]bool{
@@ -196,6 +206,7 @@ func appModules(
 		ibchooks.NewAppModule(app.AccountKeeper),
 		consensus.NewAppModule(appCodec, app.ConsensusParamsKeeper),
 		taxmodule.NewAppModule(appCodec, app.TaxKeeper),
+		alliance.NewAppModule(appCodec, app.AllianceKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
 		crisis.NewAppModule(app.CrisisKeeper, skipGenesisInvariants, app.GetSubspace(crisistypes.ModuleName)), // always be last to make sure that it checks for all invariants and not only part of them
 	}
 }
@@ -230,6 +241,7 @@ func simulationModules(
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper, app.MsgServiceRouter(), app.GetSubspace(wasmtypes.ModuleName)),
 		dyncomm.NewAppModule(appCodec, app.DyncommKeeper, app.StakingKeeper),
 		taxmodule.NewAppModule(appCodec, app.TaxKeeper),
+		alliance.NewAppModule(appCodec, app.AllianceKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
 	}
 }
 
@@ -264,6 +276,7 @@ func orderBeginBlockers() []string {
 		wasmtypes.ModuleName,
 		dyncommtypes.ModuleName,
 		taxtypes.ModuleName,
+		alliancetypes.ModuleName,
 		// consensus module
 		consensusparamtypes.ModuleName,
 	}
@@ -300,6 +313,7 @@ func orderEndBlockers() []string {
 		wasmtypes.ModuleName,
 		dyncommtypes.ModuleName,
 		taxtypes.ModuleName,
+		alliancetypes.ModuleName,
 		// consensus module
 		consensusparamtypes.ModuleName,
 	}
@@ -336,6 +350,7 @@ func orderInitGenesis() []string {
 		wasmtypes.ModuleName,
 		dyncommtypes.ModuleName,
 		taxtypes.ModuleName,
+		alliancetypes.ModuleName,
 		// consensus module
 		consensusparamtypes.ModuleName,
 	}

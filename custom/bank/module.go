@@ -14,6 +14,7 @@ import (
 	customcli "github.com/classic-terra/core/v3/custom/bank/client/cli"
 	customsim "github.com/classic-terra/core/v3/custom/bank/simulation"
 	customtypes "github.com/classic-terra/core/v3/custom/bank/types"
+	customkeeper "github.com/efeovez/columbus-core/custom/bank/keeper"
 )
 
 var (
@@ -39,18 +40,23 @@ func (AppModuleBasic) GetTxCmd() *cobra.Command {
 }
 
 // AppModule implements an application module for the bank module.
+// AppModule wraps around the bank module and the bank keeper to return the right total supply ignoring bonded tokens
+// that the alliance module minted to rebalance the voting power
+// It modifies the TotalSupply and SupplyOf GRPC queries
 type AppModule struct {
 	bank.AppModule
-	keeper        keeper.Keeper
+	keeper        customkeeper.Keeper
 	accountKeeper types.AccountKeeper
+	subspace exported.Subspace
 }
 
 // NewAppModule creates a new AppModule object
-func NewAppModule(cdc codec.Codec, keeper keeper.Keeper, accountKeeper types.AccountKeeper, subspace exported.Subspace) AppModule {
+func NewAppModule(cdc codec.Codec, keeper customkeeper.Keeper, accountKeeper types.AccountKeeper, ss exported.Subspace) AppModule {
 	return AppModule{
-		AppModule:     bank.NewAppModule(cdc, keeper, accountKeeper, subspace),
+		AppModule:     bank.NewAppModule(cdc, keeper, accountKeeper, ss),
 		keeper:        keeper,
 		accountKeeper: accountKeeper,
+		subspace:      ss,
 	}
 }
 
@@ -65,4 +71,25 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	return customsim.WeightedOperations(
 		simState.AppParams, simState.Cdc, am.accountKeeper, am.keeper,
 	)
+}
+
+// RegisterServices registers module services.
+// NOTE: Overriding this method as not doing so will cause a panic
+// when trying to force this custom keeper into a bankkeeper.BaseKeeper
+func (am AppModule) RegisterServices(cfg module.Configurator) {
+	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper))
+	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
+
+	m := keeper.NewMigrator(am.keeper.BaseKeeper, am.subspace)
+	if err := cfg.RegisterMigration(types.ModuleName, 1, m.Migrate1to2); err != nil {
+		panic(fmt.Sprintf("failed to migrate x/bank from version 1 to 2: %v", err))
+	}
+
+	if err := cfg.RegisterMigration(types.ModuleName, 2, m.Migrate2to3); err != nil {
+		panic(fmt.Sprintf("failed to migrate x/bank from version 2 to 3: %v", err))
+	}
+
+	if err := cfg.RegisterMigration(types.ModuleName, 3, m.Migrate3to4); err != nil {
+		panic(fmt.Sprintf("failed to migrate x/bank from version 3 to 4: %v", err))
+	}
 }

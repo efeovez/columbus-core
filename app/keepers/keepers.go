@@ -72,6 +72,10 @@ import (
 	taxexemptiontypes "github.com/classic-terra/core/v3/x/taxexemption/types"
 	treasurykeeper "github.com/classic-terra/core/v3/x/treasury/keeper"
 	treasurytypes "github.com/classic-terra/core/v3/x/treasury/types"
+	alliancekeeper "github.com/terra-money/alliance/x/alliance/keeper"
+	alliancetypes "github.com/terra-money/alliance/x/alliance/types"
+	custombank "github.com/efeovez/columbus-core/custom/bank"
+	custombankkeeper "github.com/efeovez/columbus-core/custom/bank/keeper"
 )
 
 type AppKeepers struct {
@@ -109,6 +113,7 @@ type AppKeepers struct {
 	IBCHooksKeeper        *ibchookskeeper.Keeper
 	ConsensusParamsKeeper consensusparamkeeper.Keeper
 	TaxKeeper             taxkeeper.Keeper
+	AllianceKeeper        alliancekeeper.Keeper
 
 	Ics20WasmHooks  *ibchooks.WasmHooks
 	IBCHooksWrapper *ibchooks.ICS4Middleware
@@ -164,6 +169,7 @@ func NewAppKeepers(
 		wasmtypes.StoreKey,
 		dyncommtypes.StoreKey,
 		taxtypes.StoreKey,
+		alliancetypes.StoreKey,
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey)
@@ -211,12 +217,14 @@ func NewAppKeepers(
 		sdk.GetConfig().GetBech32AccountAddrPrefix(),
 		authtypes.NewModuleAddress(govtypes.ModuleName).String(),
 	)
-	appKeepers.BankKeeper = bankkeeper.NewBaseKeeper(
+	appKeepers.BankKeeper = custombankkeeper.NewBaseKeeper(
 		appCodec,
 		appKeepers.keys[banktypes.StoreKey],
 		appKeepers.AccountKeeper,
 		appKeepers.BlacklistedAccAddrs(maccPerms, allowedReceivingModAcc),
 		authtypes.NewModuleAddress(govtypes.ModuleName).String(),
+		appKeepers.GetSubspace(banktypes.ModuleName),
+		appKeepers.BlockedModuleAccAddrs(),
 	)
 	appKeepers.AuthzKeeper = authzkeeper.NewKeeper(
 		appKeepers.keys[authzkeeper.StoreKey],
@@ -234,6 +242,7 @@ func NewAppKeepers(
 		appKeepers.keys[stakingtypes.StoreKey],
 		appKeepers.AccountKeeper,
 		appKeepers.BankKeeper,
+		app.GetSubspace(stakingtypes.ModuleName),
 		authtypes.NewModuleAddress(govtypes.ModuleName).String(),
 	)
 	appKeepers.MintKeeper = mintkeeper.NewKeeper(
@@ -281,7 +290,7 @@ func NewAppKeepers(
 	// register the staking hooks
 	// NOTE: stakingKeeper above is passed by reference, so that it will contain these hooks
 	appKeepers.StakingKeeper.SetHooks(
-		stakingtypes.NewMultiStakingHooks(customstaking.NewTerraStakingHooks(*appKeepers.StakingKeeper), appKeepers.DistrKeeper.Hooks(), appKeepers.SlashingKeeper.Hooks()),
+		stakingtypes.NewMultiStakingHooks(customstaking.NewTerraStakingHooks(*appKeepers.StakingKeeper), appKeepers.DistrKeeper.Hooks(), appKeepers.SlashingKeeper.Hooks(), appKeepers.AllianceKeeper.StakingHooks()),
 	)
 
 	// Create IBC Keeper
@@ -359,6 +368,16 @@ func NewAppKeepers(
 		appKeepers.AccountKeeper,
 		authtypes.NewModuleAddress(govtypes.ModuleName).String(),
 	)
+
+	appKeepers.AllianceKeeper = alliancekeeper.NewKeeper(
+		appCodec, appKeepers.keys[alliancetypes.StoreKey],
+		appKeepers.GetSubspace(alliancetypes.ModuleName),
+		appKeepers.AccountKeeper, appKeepers.BankKeeper,
+		&appKeepers.StakingKeeper, appKeepers.DistrKeeper,
+		authtypes.FeeCollectorName,
+	)
+
+	appKeepers.BankKeeper.RegisterKeepers(appKeepers.AllianceKeeper, &stakingKeeper)
 
 	hooksKeeper := ibchookskeeper.NewKeeper(
 		appKeepers.keys[ibchookstypes.StoreKey],
@@ -534,6 +553,7 @@ func initParamsKeeper(
 	paramsKeeper.Subspace(wasmtypes.ModuleName)
 	paramsKeeper.Subspace(dyncommtypes.ModuleName)
 	paramsKeeper.Subspace(taxtypes.ModuleName)
+	paramsKeeper.Subspace(alliancetypes.ModuleName)
 
 	return paramsKeeper
 }
@@ -556,3 +576,13 @@ func (appKeepers *AppKeepers) BlacklistedAccAddrs(
 
 	return blacklistedAddrs
 }
+
+// BlockedModuleAccAddrs returns a map of module account addresses
+func (appKeepers *AppKeepers) BlockedModuleAccAddrs(
+	modAccAddrs := appKeepers.ModuleAccountAddrs()
+
+	delete(modAccAddrs, authtypes.NewModuleAddress(govtypes.ModuleName).String())
+	delete(modAccAddrs, authtypes.NewModuleAddress(alliancetypes.ModuleName).String())
+
+	return modAccAddrs
+)
